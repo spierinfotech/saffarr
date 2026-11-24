@@ -83,6 +83,8 @@ export function MotionLayer() {
       setSky = (bg, fg) => gsap.to(root, { "--bg": bg, "--fg": fg, duration: 0.9, ease: "power2.out", overwrite: true });
 
       const lenis = new Lenis({ lerp: 0.11, anchors: { offset: -72 } });
+      // Shared so sections that step the scroll themselves (the Weekends drive) can move it smoothly.
+      (window as Window & { __lenis?: typeof lenis }).__lenis = lenis;
       lenis.on("scroll", ScrollTrigger.update);
       lenis.on("scroll", tickClock);
       const raf = (t: number) => lenis.raf(t * 1000);
@@ -125,6 +127,7 @@ export function MotionLayer() {
       cleanup = () => {
         triggers.forEach((t) => t.kill());
         gsap.ticker.remove(raf);
+        delete (window as Window & { __lenis?: unknown }).__lenis;
         lenis.destroy();
         root.classList.remove("motion-ok", "sky-live");
         root.style.removeProperty("--bg");

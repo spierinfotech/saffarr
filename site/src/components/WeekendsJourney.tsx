@@ -4,6 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { destinations, whatsappLink } from "@/content/site";
 
 type Gsap = typeof import("gsap").default;
+type LenisLike = { scrollTo: (target: number, opts?: { duration?: number; lock?: boolean; force?: boolean; immediate?: boolean; onComplete?: () => void }) => void };
+
+const STEP_SECONDS = 0.9; // how long one trip-to-trip scroll takes
+const QUIET_MS = 220; // wheel/trackpad momentum must go quiet this long before the next step
 
 /**
  * The ten weekends as one drive you scroll through. The stage stays pinned to the
@@ -20,6 +24,9 @@ export function WeekendsJourney() {
   const contentRef = useRef<HTMLDivElement>(null);
   const firstCardRef = useRef<HTMLButtonElement>(null);
   const stops = useRef<(HTMLDivElement | null)[]>([]);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const indexRef = useRef(0);
+  const busy = useRef(false);
   const tweenRef = useRef<{ progress: (n: number) => void } | null>(null);
   const gsapRef = useRef<Gsap | null>(null);
   const reduceRef = useRef(false);
@@ -32,6 +39,7 @@ export function WeekendsJourney() {
     const prev = shown.current;
     if (next === prev) return;
     shown.current = next;
+    indexRef.current = next;
     const gsap = gsapRef.current;
     const frame = frameRef.current;
     tweenRef.current?.progress(1); // interruptible: finish the running move, then start the new one
@@ -99,13 +107,178 @@ export function WeekendsJourney() {
     };
   }, [show]);
 
-  const driveTo = (i: number) => {
-    const target = stops.current[Math.max(0, Math.min(n - 1, i))];
-    target?.scrollIntoView({ behavior: reduceRef.current ? "auto" : "smooth", block: "start" });
-  };
+  // Scroll exactly to stop i. While it runs, further wheel/swipe input is ignored, so one
+  // gesture (however long) moves one trip.
+  const driveTo = useCallback(
+    (i: number, onDone?: () => void) => {
+      const el = stops.current[Math.max(0, Math.min(n - 1, i))];
+      if (!el) return;
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      const lenis = (window as Window & { __lenis?: LenisLike }).__lenis;
+      if (Math.abs(top - window.scrollY) < 2) {
+        onDone?.(); // already there (the scroll engine would never report completion)
+      } else if (lenis && !reduceRef.current) {
+        // Safety net: if the engine never reports back, still free the input after the move.
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          onDone?.();
+        };
+        setTimeout(finish, STEP_SECONDS * 1000 + 500);
+        lenis.scrollTo(top, { duration: STEP_SECONDS, lock: true, force: true, onComplete: finish });
+      } else {
+        window.scrollTo({ top, behavior: "auto" });
+        onDone?.();
+      }
+    },
+    [n],
+  );
+
+  // One trip per gesture. Inside the pinned drive, a wheel turn or a swipe of any length
+  // moves to the next or previous stop; past the first or last trip, the page scrolls on
+  // normally so you can leave the drive.
+  useEffect(() => {
+    let lastInput = 0;
+    let touchY: number | null = null;
+
+    const pinned = () => {
+      const w = wrapRef.current;
+      if (!w) return false;
+      const r = w.getBoundingClientRect();
+      return r.top <= 2 && r.bottom >= window.innerHeight - 2;
+    };
+
+    // Release the lock only once the scroll has finished AND the momentum has gone quiet.
+    const release = () => {
+      const wait = () => {
+        if (performance.now() - lastInput < QUIET_MS) setTimeout(wait, 60);
+        else busy.current = false;
+      };
+      wait();
+    };
+
+    // Is the page sitting exactly on the trip on show? If not (we have just scrolled into the
+    // drive), the first move settles on that trip instead of skipping past it.
+    const aligned = () => {
+      const el = stops.current[indexRef.current];
+      return !el || Math.abs(el.getBoundingClientRect().top) <= 4;
+    };
+
+    const step = (dir: 1 | -1, e: Event) => {
+      const at = indexRef.current;
+      const target = aligned() ? at + dir : at;
+      if (target < 0 || target > n - 1) return false; // let the page scroll out of the drive
+      e.preventDefault();
+      e.stopPropagation(); // keep the smooth-scroll engine from also moving the page
+      if (busy.current) return true;
+      busy.current = true;
+      driveTo(target, release);
+      return true;
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) < 2 || !pinned()) return;
+      lastInput = performance.now();
+      if (busy.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      step(e.deltaY > 0 ? 1 : -1, e);
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      touchY = e.touches[0]?.clientY ?? null;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (touchY === null || !pinned()) return;
+      const dy = touchY - (e.touches[0]?.clientY ?? touchY);
+      const dir: 1 | -1 = dy > 0 ? 1 : -1;
+      const at = indexRef.current;
+      // Hold the page still inside the drive (the swipe is turned into one step on release),
+      // but let it move when the swipe leads out past the first or last trip.
+      if (at + dir >= 0 && at + dir <= n - 1) e.preventDefault();
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      if (touchY === null) return;
+      const dy = touchY - (e.changedTouches[0]?.clientY ?? touchY);
+      touchY = null;
+      if (Math.abs(dy) < 40 || !pinned() || busy.current) return;
+      lastInput = performance.now();
+      step(dy > 0 ? 1 : -1, e);
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (!pinned() || e.altKey || e.ctrlKey || e.metaKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      const down = ["ArrowDown", "PageDown", " "].includes(e.key) && !e.shiftKey;
+      const up = ["ArrowUp", "PageUp"].includes(e.key) || (e.key === " " && e.shiftKey);
+      if (!down && !up) return;
+      if (busy.current) {
+        e.preventDefault();
+        return;
+      }
+      lastInput = 0;
+      step(down ? 1 : -1, e);
+    };
+
+    // Arriving at the drive with a fast scroll: the smooth-scroll momentum would carry the page
+    // several trips in. Catch it at the edge and land exactly on the first (or, coming back up,
+    // the last) trip.
+    let prevTop = wrapRef.current?.getBoundingClientRect().top ?? 0;
+    let prevBottom = wrapRef.current?.getBoundingClientRect().bottom ?? 0;
+    const onScrollEdge = () => {
+      const w = wrapRef.current;
+      if (!w) return;
+      const r = w.getBoundingClientRect();
+      const vh = window.innerHeight;
+      if (!busy.current && prevTop > 2 && r.top <= 2 && r.bottom > vh) {
+        busy.current = true;
+        driveTo(0, release);
+      } else if (!busy.current && prevBottom < vh - 2 && r.bottom >= vh - 2 && r.top < 0) {
+        busy.current = true;
+        driveTo(n - 1, release);
+      }
+      prevTop = r.top;
+      prevBottom = r.bottom;
+    };
+
+    // In-page links to a trip (#matheran from the chips or the list) drive straight there;
+    // the lock keeps the edge catch above from stopping them at the first trip.
+    const onClick = (e: MouseEvent) => {
+      const a = (e.target as HTMLElement | null)?.closest<HTMLAnchorElement>('a[href^="#"]');
+      const i = a ? destinations.findIndex((x) => `#${x.id}` === a.getAttribute("href")) : -1;
+      if (i < 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      history.replaceState(null, "", `#${destinations[i].id}`);
+      busy.current = true;
+      lastInput = 0;
+      driveTo(i, release);
+    };
+
+    window.addEventListener("scroll", onScrollEdge, { passive: true });
+    document.addEventListener("click", onClick, { capture: true });
+    window.addEventListener("wheel", onWheel, { passive: false, capture: true });
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
+    window.addEventListener("touchend", onTouchEnd);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("scroll", onScrollEdge);
+      document.removeEventListener("click", onClick, { capture: true });
+      window.removeEventListener("wheel", onWheel, { capture: true });
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onTouchEnd);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [driveTo, n]);
 
   return (
-    <div className="relative bg-night text-paper" style={{ height: `${n * 100}svh` }}>
+    <div ref={wrapRef} className="relative bg-night text-paper" style={{ height: `${n * 100}svh` }}>
       {/* The pinned stage. */}
       <div
         ref={frameRef}
@@ -218,7 +391,8 @@ export function WeekendsJourney() {
           }}
           aria-hidden
           className="pointer-events-none absolute inset-x-0 h-[100svh]"
-          style={{ top: `${i * 100}svh` }}
+          // cancel the page-wide 80px header offset for links: a trip link should land exactly on its stop
+          style={{ top: `${i * 100}svh`, scrollMarginTop: "-80px" }}
         />
       ))}
     </div>
