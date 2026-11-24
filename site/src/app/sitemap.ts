@@ -9,6 +9,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const latest = posts[0]?.date ?? "2026-11-24";
   return [
     { url: `${site.domain}/`, lastModified: "2026-11-24", changeFrequency: "monthly", priority: 1 },
+    { url: `${site.domain}/weekends/`, lastModified: "2026-11-24", changeFrequency: "monthly", priority: 0.9 },
     { url: `${site.domain}/blog/`, lastModified: latest, changeFrequency: "weekly", priority: 0.8 },
     ...posts.map((p) => ({
       url: `${site.domain}/blog/${p.slug}/`,

@@ -26,6 +26,7 @@ ${services.map((s) => `- ${s.title}: ${s.body}`).join("\n")}
 ${fleet.map((c) => `- ${c.name} (${c.type}): up to ${c.seats} passengers plus driver, ${c.bags}. ${c.note}`).join("\n")}
 
 ## Popular trips from Pune (approximate road distance and time)
+Full guide: ${site.domain}/weekends/
 ${destinations.map((d) => `- ${d.name}: ${d.km} km, ${d.drive.toLowerCase()}. ${d.line} Best time: ${d.season}. Tip: ${d.tip}`).join("\n")}
 
 ## Frequently asked questions

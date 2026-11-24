@@ -39,7 +39,7 @@ export function whatsappLink(message: string) {
 export const nav = [
   { href: "/#story", label: "Our story" },
   { href: "/#fleet", label: "Cars" },
-  { href: "/#weekends", label: "Weekends" },
+  { href: "/weekends/", label: "Weekends" },
   { href: "/blog/", label: "Driver's Notes" },
   { href: "/#faq", label: "Questions" },
 ];
