@@ -24,7 +24,7 @@ export function Hero() {
         </div>
 
         <div className="wrap w-full pb-[max(9vh,72px)] pt-36">
-          <h1 id="hero-title" className="display rise-1 text-[clamp(2.75rem,7vw,8.75rem)] text-paper">
+          <h1 id="hero-title" className="display rise-1 text-[clamp(2.375rem,7vw,8.75rem)] text-paper">
             On time.
             <br />
             On <span className="whitespace-nowrap">first-name</span> terms.

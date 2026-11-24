@@ -48,7 +48,7 @@ export function Footer() {
           </div>
         </div>
 
-        <div className="mt-14 flex flex-wrap items-center justify-between gap-4 border-t border-paper/15 pt-6 text-[14px] text-paper/60">
+        <div className="mt-14 flex flex-wrap items-center justify-between gap-4 text-[14px] text-paper/60">
           <p>© 2026 {site.name}, {site.city}. All rights reserved.</p>
           <a href="#top" className="font-semibold text-paper/80 hover:text-headlight">
             Back to the 04:30 start <span aria-hidden>↑</span>

@@ -32,14 +32,15 @@ export default function WeekendsPage() {
       />
 
       <Chapter tone="day" time="07:45" stop="Arrived" labelledBy="weekends-title">
-        <div className="wrap pt-40 pb-[clamp(48px,5vw,80px)]">
+        {/* at least 62% of the screen tall, so the dark drive below never sits at the sky line (55%) on load and turns the intro dark */}
+        <div className="wrap min-h-[62svh] pt-40 pb-[clamp(48px,5vw,80px)]">
           <h1 id="weekends-title" className="display rise-1 text-[clamp(2.75rem,6.6vw,7rem)]">Ten weekends from Pune.</h1>
           <p className="lede rise-2 mt-6 !max-w-[56ch]">
             The trips we&rsquo;re asked for most, with the distance, the drive time and a tip from the people who drive them. Scroll to drive through all ten, or jump straight to one.
           </p>
           <nav aria-label="Jump to a trip" className="rise-3 mt-8 flex flex-wrap gap-2">
             {destinations.map((d, i) => (
-              <a key={d.id} href={`#${d.id}`} className="rounded-full border-2 border-ink px-4 py-2 text-[15px] font-semibold transition-colors hover:bg-ink hover:text-paper">
+              <a key={d.id} href={`#${d.id}`} className="rounded-full border-2 border-current px-4 py-2 text-[15px] font-semibold transition-colors hover:bg-[var(--fg)] hover:text-[var(--bg)]">
                 <span className="tnum opacity-60">{String(i + 1).padStart(2, "0")}</span> {d.short}
               </a>
             ))}

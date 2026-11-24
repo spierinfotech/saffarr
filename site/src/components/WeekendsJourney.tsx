@@ -7,7 +7,6 @@ type Gsap = typeof import("gsap").default;
 type LenisLike = { scrollTo: (target: number, opts?: { duration?: number; lock?: boolean; force?: boolean; immediate?: boolean; onComplete?: () => void }) => void };
 
 const STEP_SECONDS = 0.9; // how long one trip-to-trip scroll takes
-const QUIET_MS = 220; // wheel/trackpad momentum must go quiet this long before the next step
 
 /**
  * The ten weekends as one drive you scroll through. The stage stays pinned to the
@@ -65,7 +64,8 @@ export function WeekendsJourney() {
         setIndex(next);
         requestAnimationFrame(() => {
           overlay.remove();
-          if (content) gsap.fromTo(content.children, { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.6, ease: "expo.out", stagger: 0.05 });
+          // the new trip's text arrives as one block, quickly, so it is never caught half-faded
+          if (content) gsap.fromTo(content.children, { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.32, ease: "power2.out" });
         });
       },
     });
@@ -139,7 +139,10 @@ export function WeekendsJourney() {
   // moves to the next or previous stop; past the first or last trip, the page scrolls on
   // normally so you can leave the drive.
   useEffect(() => {
-    let lastInput = 0;
+    let lastWheel = 0; // time of the last wheel event
+    let lastAbs = 0; // its size
+    let used = false; // the current wheel gesture has already moved a trip
+    let passUntil = 0; // an in-page link is scrolling through the drive: don't catch it at the edge
     let touchY: number | null = null;
 
     const pinned = () => {
@@ -149,25 +152,31 @@ export function WeekendsJourney() {
       return r.top <= 2 && r.bottom >= window.innerHeight - 2;
     };
 
-    // Release the lock only once the scroll has finished AND the momentum has gone quiet.
     const release = () => {
-      const wait = () => {
-        if (performance.now() - lastInput < QUIET_MS) setTimeout(wait, 60);
-        else busy.current = false;
-      };
-      wait();
+      busy.current = false;
     };
 
-    // Is the page sitting exactly on the trip on show? If not (we have just scrolled into the
-    // drive), the first move settles on that trip instead of skipping past it.
-    const aligned = () => {
-      const el = stops.current[indexRef.current];
-      return !el || Math.abs(el.getBoundingClientRect().top) <= 4;
+    // Where one step in `dir` leads. Measured from the stop nearest the top of the screen, so a
+    // page that has drifted a few pixels still moves on; if that stop is still ahead of us (we
+    // have only just scrolled into the drive), the step settles on it instead of skipping it.
+    const targetFor = (dir: 1 | -1) => {
+      let near = 0;
+      let best = Infinity;
+      stops.current.forEach((el, i) => {
+        const t = el ? Math.abs(el.getBoundingClientRect().top) : Infinity;
+        if (t < best) {
+          best = t;
+          near = i;
+        }
+      });
+      const top = stops.current[near]?.getBoundingClientRect().top ?? 0;
+      if (dir > 0 && top > 40) return near;
+      if (dir < 0 && top < -40) return near;
+      return near + dir;
     };
 
     const step = (dir: 1 | -1, e: Event) => {
-      const at = indexRef.current;
-      const target = aligned() ? at + dir : at;
+      const target = targetFor(dir);
       if (target < 0 || target > n - 1) return false; // let the page scroll out of the drive
       e.preventDefault();
       e.stopPropagation(); // keep the smooth-scroll engine from also moving the page
@@ -177,15 +186,24 @@ export function WeekendsJourney() {
       return true;
     };
 
+    // A trackpad sends one burst per swipe and then a long, fading momentum tail; a mouse wheel
+    // sends separate clicks. A new gesture is a pause in the events, or a delta that jumps up
+    // again (a fresh swipe while the last one's tail is still fading).
     const onWheel = (e: WheelEvent) => {
-      if (Math.abs(e.deltaY) < 2 || !pinned()) return;
-      lastInput = performance.now();
-      if (busy.current) {
+      const now = performance.now();
+      const abs = Math.abs(e.deltaY);
+      const fresh = now - lastWheel > 160 || abs > lastAbs * 1.5 + 6;
+      lastWheel = now;
+      lastAbs = abs;
+      if (!pinned() || abs === 0) return;
+      if (fresh && !busy.current) used = false;
+      if (busy.current || used) {
+        // still the same gesture (or its tail): hold the page exactly where it is
         e.preventDefault();
         e.stopPropagation();
         return;
       }
-      step(e.deltaY > 0 ? 1 : -1, e);
+      if (step(e.deltaY > 0 ? 1 : -1, e)) used = true;
     };
 
     const onTouchStart = (e: TouchEvent) => {
@@ -205,7 +223,6 @@ export function WeekendsJourney() {
       const dy = touchY - (e.changedTouches[0]?.clientY ?? touchY);
       touchY = null;
       if (Math.abs(dy) < 40 || !pinned() || busy.current) return;
-      lastInput = performance.now();
       step(dy > 0 ? 1 : -1, e);
     };
 
@@ -220,7 +237,6 @@ export function WeekendsJourney() {
         e.preventDefault();
         return;
       }
-      lastInput = 0;
       step(down ? 1 : -1, e);
     };
 
@@ -234,11 +250,16 @@ export function WeekendsJourney() {
       if (!w) return;
       const r = w.getBoundingClientRect();
       const vh = window.innerHeight;
-      if (!busy.current && prevTop > 2 && r.top <= 2 && r.bottom > vh) {
+      const passing = performance.now() < passUntil;
+      if (passing) {
+        // let an in-page link (Book, the list) scroll straight through
+      } else if (!busy.current && prevTop > 2 && r.top <= 2 && r.bottom > vh) {
         busy.current = true;
+        used = true; // the swipe that carried us in is spent: its tail must not move on to trip 2
         driveTo(0, release);
       } else if (!busy.current && prevBottom < vh - 2 && r.bottom >= vh - 2 && r.top < 0) {
         busy.current = true;
+        used = true;
         driveTo(n - 1, release);
       }
       prevTop = r.top;
@@ -250,12 +271,12 @@ export function WeekendsJourney() {
     const onClick = (e: MouseEvent) => {
       const a = (e.target as HTMLElement | null)?.closest<HTMLAnchorElement>('a[href^="#"]');
       const i = a ? destinations.findIndex((x) => `#${x.id}` === a.getAttribute("href")) : -1;
+      if (a && i < 0) passUntil = performance.now() + 2500;
       if (i < 0) return;
       e.preventDefault();
       e.stopPropagation();
       history.replaceState(null, "", `#${destinations[i].id}`);
       busy.current = true;
-      lastInput = 0;
       driveTo(i, release);
     };
 
@@ -307,7 +328,7 @@ export function WeekendsJourney() {
           <div className="w-full bg-headlight transition-[height] duration-700 ease-[var(--ease-out)]" style={{ height: `${((index + 1) / n) * 100}%` }} />
         </div>
 
-        <div className="wrap relative z-10 grid h-full content-end gap-8 pb-[max(56px,9vh)] pt-28 md:pl-[calc(var(--gutter)+36px)] lg:grid-cols-[minmax(0,1fr)_340px] lg:items-end">
+        <div className="wrap relative z-10 grid h-full content-end gap-8 pb-[max(56px,9vh)] pt-28 [@media(max-height:720px)]:gap-4 [@media(max-height:720px)]:pb-20 [@media(max-height:720px)]:md:pb-8 md:pl-[calc(var(--gutter)+36px)] lg:grid-cols-[minmax(0,1fr)_340px] lg:items-end">
           <div ref={contentRef} aria-live="polite" className="max-w-[820px]">
             <p className="text-[15px] font-semibold text-paper/80 tnum">
               Trip {index + 1} of {n} · {d.tag}
@@ -316,14 +337,15 @@ export function WeekendsJourney() {
             <p className="numerals mt-2 text-[clamp(3rem,min(6.5vw,10vh),6.5rem)] leading-[0.9] text-headlight">
               {d.km} km<span className="sr-only"> from Pune</span>
             </p>
-            <p className="mt-4 max-w-[50ch] text-[clamp(1.0625rem,1.5vw,1.3125rem)]">{d.line}</p>
-            <p className="mt-2 text-[1rem] text-paper/85">
+            <p className="mt-4 max-w-[50ch] text-[clamp(1.0625rem,1.5vw,1.3125rem)] [@media(max-height:720px)]:mt-2">{d.line}</p>
+            {/* on short screens this line gives way (the full list below repeats it) */}
+            <p className="mt-2 text-[1rem] text-paper/85 [@media(max-height:720px)]:hidden">
               {d.drive} · Best time: {d.season}
             </p>
-            <p className="mt-6 max-w-[60ch] text-[clamp(1.0625rem,1.6vw,1.375rem)] font-semibold">
+            <p className="mt-6 max-w-[60ch] text-[clamp(1.0625rem,1.6vw,1.375rem)] font-semibold [@media(max-height:720px)]:mt-3">
               <span className="subtitle">{d.tip}</span>
             </p>
-            <div className="mt-7 flex flex-wrap items-center gap-x-7 gap-y-4">
+            <div className="mt-7 flex flex-wrap items-center gap-x-7 gap-y-4 [@media(max-height:720px)]:mt-4">
               <a href={whatsappLink(`Hi Saffarr Travels, I'd like to plan a trip from Pune to ${d.name}.`)} className="btn btn-light">
                 Plan this trip
               </a>

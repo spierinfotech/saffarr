@@ -82,7 +82,7 @@ export function MotionLayer() {
 
       setSky = (bg, fg) => gsap.to(root, { "--bg": bg, "--fg": fg, duration: 0.9, ease: "power2.out", overwrite: true });
 
-      const lenis = new Lenis({ lerp: 0.11, anchors: { offset: -72 } });
+      const lenis = new Lenis({ lerp: 0.11, anchors: true }); // the header offset comes from scroll-padding-top in the CSS
       // Shared so sections that step the scroll themselves (the Weekends drive) can move it smoothly.
       (window as Window & { __lenis?: typeof lenis }).__lenis = lenis;
       lenis.on("scroll", ScrollTrigger.update);

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { nav, site } from "@/content/site";
 
@@ -15,6 +16,8 @@ export function Wordmark({ className = "" }: { className?: string }) {
 export function Header() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  // Pages with their own booking form (the weekends guide) book on the spot instead of leaving for the home page.
+  const bookHref = usePathname()?.startsWith("/weekends") ? "#book" : "/#book";
 
   useEffect(() => {
     const on = () => setScrolled(window.scrollY > 24);
@@ -66,7 +69,7 @@ export function Header() {
           <a href={`tel:${site.phoneE164}`} className="hidden md:inline xl:hidden 2xl:inline whitespace-nowrap text-[15px] font-bold tnum hover:underline decoration-headlight">
             {site.phoneDisplay}
           </a>
-          <Link href="/#book" className="btn btn-light !min-h-[44px] !px-5 !py-3 text-[15px]">
+          <Link href={bookHref} className="btn btn-light !min-h-[44px] !px-5 !py-3 text-[15px]">
             Book
           </Link>
           <button
