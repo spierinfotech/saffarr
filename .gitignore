@@ -3,3 +3,7 @@
 site/.taste-skill/
 
 .DS_Store
+
+# Vercel link and its token (never commit)
+.vercel
+.env*
